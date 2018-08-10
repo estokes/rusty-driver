@@ -1,0 +1,29 @@
+[package]
+name = "rusy-driver"
+version = "0.1.0"
+
+description = "A high level API for interacting with web pages through webdriver. This is a nearly complete rewrite of fantoccini."
+readme = "README.md"
+
+authors = ["Eric Stokes <letaris@gmail.com>"]
+
+#documentation = "https://docs.rs/fantoccini"
+#homepage = "https://github.com/jonhoo/fantoccini"
+#repository = "https://github.com/jonhoo/fantoccini.git"
+
+keywords = ["webdriver", "chromedriver", "geckodriver", "phantomjs", "automation"]
+categories = ["api-bindings", "development-tools::testing", "web-programming::http-client"]
+
+license = "MIT/Apache-2.0"
+
+[dependencies]
+webdriver = "0.36"
+url = "1.0"
+rustc-serialize = "0.3"
+futures-await = "0.1"
+tokio = "0.1"
+tokio-timer = "0.2"
+http = "0.1"
+hyper = "0.12"
+hyper-tls = "0.3"
+error-chain = "0.12"
