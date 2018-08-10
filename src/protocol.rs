@@ -1,4 +1,7 @@
-//! Low level communication to the webdriver server built on top of hyper
+//! This module handles the low level details of sending requests to
+//! the webdriver server using hyper, and interpreting errors. It also
+//! handles some of the inconsistancies in the implementation of the
+//! webdriver standard between different browsers.
 
 use webdriver::{
     self, command::WebDriverCommand,
@@ -55,7 +58,7 @@ impl Drop for ClientInner {
 
 /// A WebDriver client tied to a single browser session.
 #[derive(Clone)]
-pub struct Client(Arc<Mutex<ClientInner>>);
+pub(crate) struct Client(Arc<Mutex<ClientInner>>);
 
 fn encode_cmd(cmd: &Cmd) -> (Option<String>, Method) {
     use rustc_serialize::json::ToJson;
@@ -106,8 +109,7 @@ fn encode_cmd(cmd: &Cmd) -> (Option<String>, Method) {
 }
 
 impl Client {
-    /// Create a new `Client` associated with a new WebDriver session
-    /// on the server at the given URL.
+    /// Create a new webdriver session on the server specified by `webdriver_url`.
     #[async]
     pub fn new(webdriver_url: String) -> Result<Self> {
         let webdriver_url = webdriver_url.parse::<url::Url>()?;
@@ -123,8 +125,6 @@ impl Client {
             c.insert("pageLoadStrategy".to_string(), Json::String("normal".to_string()));
             c
         };
-        Ok(client)
-        /*
         let session_config = webdriver::capabilities::SpecNewSessionParameters {
             alwaysMatch: cap.clone(), firstMatch: vec![],
         };
@@ -157,9 +157,8 @@ impl Client {
                     Ok(client)
                 }
             },
-            e => e,
+            Err(e) => bail!(e),
         }
-         */
     }
 
     #[async]
@@ -334,6 +333,9 @@ impl Client {
         Ok(Error::from(ErrorKind::WebDriver(WebDriverError::new(es, message))))
     }
 
+    /// Issue a command to the webdriver server, and return the Json
+    /// object returned by the server on success or Err if the request
+    /// failed.
     #[async]
     pub(crate) fn issue_cmd(self, cmd: Cmd) -> Result<Json> {
         let url = self.endpoint_for(&cmd)?;
