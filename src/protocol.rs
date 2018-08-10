@@ -270,8 +270,6 @@ impl ClientInner {
         }
     }
 
-    /*
-    /// Create a new webdriver session on the server specified by `webdriver_url`.
     #[async]
     pub fn new(webdriver_url: String) -> Result<Self> {
         let webdriver_url = webdriver_url.parse::<url::Url>()?;
@@ -341,7 +339,6 @@ impl ClientInner {
             v => bail!(ErrorKind::NotW3C(v))
         }
     }
-     */
 }
 
 impl Drop for ClientInner {
@@ -358,6 +355,13 @@ impl Deref for Client {
 }
 
 impl Client {
+    /// Create a new webdriver session with the server specified by url
+    #[async]
+    pub(crate) fn new(webdriver_url: String) -> Result<Self> {
+        let inner = await!(ClientInner::new(webdriver_url))?;
+        Ok(Client(Arc::new(inner)))
+    }
+
     /// Issue a command to the webdriver server, and return the Json
     /// object returned by the server on success or Err if the request
     /// failed.
