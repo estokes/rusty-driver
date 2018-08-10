@@ -22,8 +22,6 @@ extern crate webdriver;
 
 pub mod error;
 mod protocol;
-#[cfg(test)]
-mod tests;
 
 use std::{time::Duration, sync::Arc};
 use tokio_timer::sleep;

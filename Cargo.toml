@@ -10,7 +10,7 @@ documentation = "https://docs.rs/rusty-driver"
 homepage = "https://github.com/estokes/rusty-driver"
 repository = "https://github.com/estokes/rusty-driver.git"
 
-keywords = ["webdriver", "chromedriver", "geckodriver", "phantomjs", "automation"]
+keywords = ["webdriver", "chromedriver", "geckodriver", "automation"]
 categories = ["api-bindings", "development-tools::testing", "web-programming::http-client"]
 
 license = "MIT"
