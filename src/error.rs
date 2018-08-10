@@ -8,6 +8,7 @@ error_chain! {
         InvalidJson(::rustc_serialize::json::ParserError);
         Utf8(::std::str::Utf8Error);
         HeaderStr(::hyper::header::ToStrError);
+        Timer(::tokio_timer::Error);
     }
 
     errors {

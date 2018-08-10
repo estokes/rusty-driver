@@ -69,7 +69,7 @@ impl Into<webdriver::command::LocatorParameters> for Locator {
 pub struct Driver(Client);
 
 struct ElementInner {
-    client: Client,
+    driver: Driver,
     eid: webdriver::common::WebElement,
 }
 
@@ -174,7 +174,7 @@ impl Driver {
     /// correctly serialize to DOM elements on the other side.
     #[async]
     pub fn execute(self, script: String, mut args: Vec<Json>) -> Result<Json> {
-        self.0.fixup_elements(&mut args);
+        self.fixup_elements(&mut args);
         let cmd = webdriver::command::JavascriptCommandParameters {
             script: script,
             args: webdriver::common::Nullable::Value(args),
@@ -186,13 +186,13 @@ impl Driver {
     /// matches the specified selector.
     #[async]
     pub fn find(self, search: Locator) -> Result<Element> {
-        await!(self.by(search.into(), None))?
+        await!(self.by(search.into(), None))
     }
 
     /// Find all elements on the page that match the specified selector.
     #[async]
     pub fn find_all(self, search: Locator) -> Result<Vec<Element>> {
-        await!(self.by_all(search.into(), None))?
+        await!(self.by_all(search.into(), None))
     }
 
     generate_wait_for_find!(wait_for_find, find, Element);
@@ -212,7 +212,7 @@ impl Driver {
         };
         loop {
             if await!(self.clone().current_url())? != current { break Ok(()) }
-            await!(sleep(Duration::from_ms(100)))?
+            await!(sleep(Duration::from_millis(100)))?
         }
     }
 
@@ -294,7 +294,7 @@ impl Element {
         let cmd = WebDriverCommand::GetElementAttribute(
             self.0.eid.clone(), attribute
         );
-        match await!(self.0.client.clone().issue_cmd(cmd))? {
+        match await!(self.0.driver.clone().0.issue_cmd(cmd))? {
             Json::String(v) => Ok(Some(v)),
             Json::Null => Ok(None),
             v => bail!(ErrorKind::NotW3C(v)),
@@ -307,7 +307,7 @@ impl Element {
         let cmd = WebDriverCommand::GetElementProperty(
             self.0.eid.clone(), prop
         );
-        match await!(self.0.client.clone().issue_cmd(cmd))? {
+        match await!(self.0.driver.clone().0.issue_cmd(cmd))? {
             Json::String(v) => Ok(Some(v)),
             Json::Null => Ok(None),
             v => bail!(ErrorKind::NotW3C(v)),
@@ -318,7 +318,7 @@ impl Element {
     #[async]
     pub fn text(self) -> Result<String> {
         let cmd = WebDriverCommand::GetElementText(self.0.eid.clone());
-        match await!(self.0.client.clone().issue_cmd(cmd))? {
+        match await!(self.0.driver.clone().0.issue_cmd(cmd))? {
             Json::String(v) => Ok(v),
             v => bail!(ErrorKind::NotW3C(v)),
         }
@@ -330,7 +330,7 @@ impl Element {
     #[async]
     pub fn html(self, inner: bool) -> Result<String> {
         let prop = if inner { "innerHTML" } else { "outerHTML" };
-        await!(self.prop(prop))?
+        await!(self.prop(prop.to_owned()))?
             .ok_or_else(|| Error::from(ErrorKind::NotW3C(Json::Null)))
     }
 
@@ -338,7 +338,7 @@ impl Element {
     #[async]
     pub fn click(self) -> Result<()> {
         let cmd = WebDriverCommand::ElementClick(self.0.eid.clone());
-        let r = await!(self.0.client.clone().issue_cmd(cmd))?;
+        let r = await!(self.0.driver.clone().0.issue_cmd(cmd))?;
         if r.is_null() || r.as_object().map(|o| o.is_empty()).unwrap_or(false) {
             // geckodriver returns {} :(
             Ok(())
@@ -350,13 +350,13 @@ impl Element {
     /// Find the child element matching the specified criteria
     #[async]
     pub fn find(self, search: Locator) -> Result<Self> {
-        await!(self.0.client.clone().by(search.into(), Some(self.0.eid.clone())))
+        await!(self.0.driver.clone().by(search.into(), Some(self.0.eid.clone())))
     }
 
     /// Find the child elements matching the specified criteria
     #[async]
     pub fn find_all(self, search: Locator) -> Result<Vec<Self>> {
-        await!(self.0.client.clone().by_all(search.into(), Some(self.0.eid.clone())))
+        await!(self.0.driver.clone().by_all(search.into(), Some(self.0.eid.clone())))
     }
 
     /// Scroll this element into view
@@ -364,7 +364,7 @@ impl Element {
     pub fn scroll_into_view(self) -> Result<()> {
         let args = vec![self.0.eid.to_json()];
         let js = "arguments[0].scrollIntoView(true)".to_string();
-        await!(self.0.client.clone().execute(js, args))?;
+        await!(self.0.driver.clone().execute(js, args))?;
         Ok(())
     }
 
@@ -378,8 +378,8 @@ impl Element {
         match await!(self.clone().attr(String::from("href")))? {
             None => bail!("no href attribute"),
             Some(href) => {
-                let current = await!(self.0.client.clone().current_url())?;
-                await!(self.0.client.clone().goto(current.join(&href)?.into_string()))?
+                let current = await!(self.0.driver.clone().current_url())?;
+                await!(self.0.driver.clone().goto(current.join(&href)?.into_string()))
             }
         }
     }
@@ -388,15 +388,17 @@ impl Element {
     #[async]
     pub fn set_by_name(self, field: String, value: String) -> Result<()> {
         let locator = Locator::Css(format!("input[name='{}']", field));
-        let elt = await!(self.0.client.clone().by(locator, Some(self.0.eid.clone())))?;
+        let elt = await!(
+            self.0.driver.clone().by(locator.into(), Some(self.0.eid.clone()))
+        )?;
         use rustc_serialize::json::ToJson;
         let args = {
-            let mut a = vec![elt.e.to_json(), Json::String(value)];
-            self.0.client.fixup_elements(&mut a);
+            let mut a = vec![elt.0.eid.to_json(), Json::String(value)];
+            self.0.driver.fixup_elements(&mut a);
             a
         };
         let js = "arguments[0].value = arguments[1]".to_string();
-        let res = await!(self.0.client.clone().execute(js, args))?;
+        let res = await!(self.0.driver.clone().execute(js, args))?;
         if res.is_null() { Ok(()) } else { bail!(ErrorKind::NotW3C(res)) }
     }
 
@@ -410,7 +412,7 @@ impl Element {
     /// Submit this form using the button matched by the given selector.
     #[async]
     pub fn submit_with(self, button: Locator) -> Result<()> {
-        let elt = await!(self.0.client.clone().by(button, Some(self.0.eid.clone())))?;
+        let elt = await!(self.0.driver.clone().by(button, Some(self.0.eid.clone())))?;
         Ok(await!(elt.click())?)
     }
 
@@ -449,10 +451,10 @@ impl Element {
         let js = "document.createElement('form').submit.call(arguments[0])".to_string();
         let args = {
             let a = vec![self.0.eid.to_json()];
-            self.0.client.fixup_elements(&mut a);
+            self.0.driver.fixup_elements(&mut a);
             a
         };
-        Ok(await!(self.0.client.clone().execute(js, args))?)
+        Ok(await!(self.0.driver.clone().execute(js, args))?)
     }
 
     /// Submit this form directly, without clicking any buttons, and
@@ -480,10 +482,10 @@ impl Element {
                 Json::String(field),
                 Json::String(value),
             ];
-            self.0.client.fixup_elements(&mut a);
+            self.0.driver.fixup_elements(&mut a);
             a
         };
-        Ok(await!(self.c.execute(js, args))?)
+        Ok(await!(self.0.driver.clone().execute(js, args))?)
     }
 }
 
