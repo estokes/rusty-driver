@@ -271,7 +271,7 @@ impl ClientInner {
     }
 
     #[async]
-    pub fn new(webdriver_url: String) -> Result<Self> {
+    pub fn new(webdriver_url: String, user_agent: Option<String>) -> Result<Self> {
         let webdriver_url = webdriver_url.parse::<url::Url>()?;
         let http_client =
             hyper::Client::builder().build(hyper_tls::HttpsConnector::new(8).unwrap());
@@ -357,8 +357,8 @@ impl Deref for Client {
 impl Client {
     /// Create a new webdriver session with the server specified by url
     #[async]
-    pub(crate) fn new(webdriver_url: String) -> Result<Self> {
-        let inner = await!(ClientInner::new(webdriver_url))?;
+    pub(crate) fn new(webdriver_url: String, user_agent: Option<String>) -> Result<Self> {
+        let inner = await!(ClientInner::new(webdriver_url, user_agent))?;
         Ok(Client(Arc::new(inner)))
     }
 
@@ -405,4 +405,3 @@ impl Client {
         else { Err(self.decode_error(status, legacy_status, response)?) }
     }
 }
-
