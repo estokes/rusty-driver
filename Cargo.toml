@@ -2,19 +2,18 @@
 name = "rusy-driver"
 version = "0.1.0"
 
-description = "A high level API for interacting with web pages through webdriver. This is a nearly complete rewrite of fantoccini."
-readme = "README.md"
+description = "A high level API for controlling a web browser with webdriver"
 
 authors = ["Eric Stokes <letaris@gmail.com>"]
 
-#documentation = "https://docs.rs/fantoccini"
-#homepage = "https://github.com/jonhoo/fantoccini"
-#repository = "https://github.com/jonhoo/fantoccini.git"
+documentation = "https://docs.rs/rusty-driver"
+homepage = "https://github.com/estokes/rusty-driver"
+repository = "https://github.com/estokes/rusty-driver.git"
 
 keywords = ["webdriver", "chromedriver", "geckodriver", "phantomjs", "automation"]
 categories = ["api-bindings", "development-tools::testing", "web-programming::http-client"]
 
-license = "MIT/Apache-2.0"
+license = "MIT"
 
 [dependencies]
 webdriver = "0.36"
