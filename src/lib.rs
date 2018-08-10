@@ -25,8 +25,7 @@ mod protocol;
 #[cfg(test)]
 mod tests;
 
-use std::{collections::HashMap, time::Duration, sync::{Arc, Mutex}};
-use tokio::spawn;
+use std::{time::Duration, sync::Arc};
 use tokio_timer::sleep;
 use webdriver::{
     command::{WebDriverCommand, SwitchToFrameParameters, SwitchToWindowParameters},
@@ -74,7 +73,7 @@ struct ElementInner {
 }
 
 #[derive(Clone)]
-struct Element(Arc<ElementInner>);
+pub struct Element(Arc<ElementInner>);
 
 macro_rules! generate_wait_for_find {
     ($name:ident, $search_fn:ident, $return_typ:ty) => {
@@ -84,9 +83,11 @@ macro_rules! generate_wait_for_find {
             loop {
                 match await!(self.clone().$search_fn(search.clone())) {
                     Ok(e) => break Ok(e),
-                    Err(Error(ErrorKind::WebDriver {
-                        error: ErrorStatus::NoSuchElement, ..
-                    }, _)) => { await!(sleep(Duration::from_ms(100)))?; },
+                    Err(Error(ErrorKind::WebDriver(
+                        WebDriverError {error: ErrorStatus::NoSuchElement, ..}
+                    ), _)) => {
+                        await!(sleep(Duration::from_millis(100)))?;
+                    },
                     Err(e) => break Err(e)
                 }
             }
@@ -116,7 +117,7 @@ impl Driver {
     pub fn current_url(self) -> Result<url::Url> {
         match await!(self.0.issue_cmd(WebDriverCommand::GetCurrentUrl))?.as_string() {
             Some(url) => Ok(url.parse()?),
-            None => bail!(ErrorKind::NotW3C(url))
+            None => bail!(ErrorKind::NotW3C(Json::Null))
         }
     }
 
@@ -125,7 +126,7 @@ impl Driver {
     pub fn source(self) -> Result<String> {
         match await!(self.0.issue_cmd(WebDriverCommand::GetPageSource))?.as_string() {
             Some(src) => Ok(src.to_string()),
-            None => bail!(ErrorKind::NotW3C(src))
+            None => bail!(ErrorKind::NotW3C(Json::Null))
         }
     }
 
@@ -227,8 +228,8 @@ impl Driver {
             Option::Some(elt) => WebDriverCommand::FindElementElement(elt, locator)
         };
         let res = await!(self.0.clone().issue_cmd(cmd))?;
-        let eid = self.parse_lookup(r)?;
-        Ok(Element(Arc::new(ElementInner { client: self.0.clone(), eid })))
+        let eid = self.parse_lookup(res)?;
+        Ok(Element(Arc::new(ElementInner { driver: self.clone(), eid })))
     }
 
     #[async]
@@ -245,7 +246,7 @@ impl Driver {
             Json::Array(a) => Ok(
                 a.into_iter().map(|e| {
                     let e = ElementInner {
-                        client: self.0.clone(),
+                        driver: self.clone(),
                         eid: self.parse_lookup(e)?
                     };
                     Ok(Element(Arc::new(e)))
@@ -412,12 +413,15 @@ impl Element {
     /// Submit this form using the button matched by the given selector.
     #[async]
     pub fn submit_with(self, button: Locator) -> Result<()> {
-        let elt = await!(self.0.driver.clone().by(button, Some(self.0.eid.clone())))?;
+        let elt = await!(
+            self.0.driver.clone().by(button.into(), Some(self.0.eid.clone()))
+        )?;
         Ok(await!(elt.click())?)
     }
 
     /// Submit this form using the form submit button with the given
     /// label (case-insensitive).
+    #[async]
     pub fn submit_using(self, button_label: String) -> Result<()> {
         let escaped = button_label.replace('\\', "\\\\").replace('"', "\\\"");
         let btn = format!(
@@ -450,11 +454,12 @@ impl Element {
         use rustc_serialize::json::ToJson;
         let js = "document.createElement('form').submit.call(arguments[0])".to_string();
         let args = {
-            let a = vec![self.0.eid.to_json()];
+            let mut a = vec![self.0.eid.to_json()];
             self.0.driver.fixup_elements(&mut a);
             a
         };
-        Ok(await!(self.0.driver.clone().execute(js, args))?)
+        await!(self.0.driver.clone().execute(js, args))?;
+        Ok(())
     }
 
     /// Submit this form directly, without clicking any buttons, and
@@ -485,12 +490,13 @@ impl Element {
             self.0.driver.fixup_elements(&mut a);
             a
         };
-        Ok(await!(self.0.driver.clone().execute(js, args))?)
+        await!(self.0.driver.clone().execute(js, args))?;
+        Ok(())
     }
 }
 
 impl rustc_serialize::json::ToJson for Element {
     fn to_json(&self) -> Json {
-        self.e.to_json()
+        self.0.eid.to_json()
     }
 }

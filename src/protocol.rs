@@ -32,7 +32,7 @@ pub(crate) struct ClientInner {
     webdriver_url: url::Url,
     user_agent: Option<String>,
     session_id: Option<String>,
-    legacy: bool
+    pub(crate) legacy: bool
 }
 
 impl ClientInner {
@@ -276,8 +276,8 @@ impl ClientInner {
         let http_client =
             hyper::Client::builder().build(hyper_tls::HttpsConnector::new(8).unwrap());
         let mut client = ClientInner {
-            http_client, webdriver_url, legacy: false,
-            user_agent: None, session_id: None
+            http_client, webdriver_url, user_agent,
+            legacy: false, session_id: None
         };
         let cap = {
             let mut c = webdriver::capabilities::Capabilities::new();
