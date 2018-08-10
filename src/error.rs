@@ -16,9 +16,9 @@ error_chain! {
             display("not a valid W3C response {}", o)
         }
 
-        NotJson(body: ::hyper::Chunk, ctyp: Option<String>) {
+        NotJson(ctyp: Option<String>) {
             description("expected JSON"),
-            display("expected JSON got ctype: {:?}, body: {:?}", ctyp, body)
+            display("expected JSON got ctype: {:?}", ctyp)
         }
     }
 }
