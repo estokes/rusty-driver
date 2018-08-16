@@ -23,11 +23,11 @@ extern crate webdriver;
 pub mod error;
 mod protocol;
 
-use std::{time::Duration, sync::Arc};
+use std::time::Duration;
 use tokio_timer::sleep;
 use webdriver::{
     command::{WebDriverCommand, SwitchToFrameParameters, SwitchToWindowParameters},
-    error::{WebDriverError, ErrorStatus}, common::{ELEMENT_KEY, FrameId}
+    error::{WebDriverError, ErrorStatus}, common::{ELEMENT_KEY, FrameId, WebElement}
 };
 use rustc_serialize::json::{ToJson, Json};
 use futures::prelude::await;
@@ -65,21 +65,17 @@ impl Into<webdriver::command::LocatorParameters> for Locator {
 #[derive(Clone)]
 pub struct Driver(Client);
 
-struct ElementInner {
-    driver: Driver,
-    eid: webdriver::common::WebElement,
-}
-
-#[derive(Clone)]
-pub struct Element(Arc<ElementInner>);
-
 macro_rules! generate_wait_for_find {
     ($name:ident, $search_fn:ident, $return_typ:ty) => {
         /// Wait for the specified element(s) to appear on the page
         #[async]
-        pub fn $name(self, search: Locator) -> Result<$return_typ> {
+        pub fn $name(
+            self,
+            search: Locator,
+            root: Option<WebElement>
+        ) -> Result<$return_typ> {
             loop {
-                match await!(self.clone().$search_fn(search.clone())) {
+                match await!(self.clone().$search_fn(search.clone(), root.clone())) {
                     Ok(e) => break Ok(e),
                     Err(Error(ErrorKind::WebDriver(
                         WebDriverError {error: ErrorStatus::NoSuchElement, ..}
@@ -144,8 +140,8 @@ impl Driver {
 
     /// Switch the focus to the frame contained in Element
     #[async]
-    pub fn switch_to_frame(self, frame: Element) -> Result<()> {
-        let p = SwitchToFrameParameters {id: FrameId::Element(frame.0.eid.clone())};
+    pub fn switch_to_frame(self, frame: WebElement) -> Result<()> {
+        let p = SwitchToFrameParameters {id: FrameId::Element(frame)};
         await!(self.0.issue_cmd(WebDriverCommand::SwitchToFrame(p)))?;
         Ok(())
     }
@@ -181,22 +177,6 @@ impl Driver {
         await!(self.0.issue_cmd(WebDriverCommand::ExecuteScript(cmd)))
     }
 
-    /// Starting from the document root, find the first element on the page that
-    /// matches the specified selector.
-    #[async]
-    pub fn find(self, search: Locator) -> Result<Element> {
-        await!(self.by(search.into(), None))
-    }
-
-    /// Find all elements on the page that match the specified selector.
-    #[async]
-    pub fn find_all(self, search: Locator) -> Result<Vec<Element>> {
-        await!(self.by_all(search.into(), None))
-    }
-
-    generate_wait_for_find!(wait_for_find, find, Element);
-    generate_wait_for_find!(wait_for_find_all, find_all, Vec<Element>);
-
     /// Wait for the page to navigate to a new URL before proceeding.
     ///
     /// If the `current` URL is not provided, `self.current_url()`
@@ -215,47 +195,42 @@ impl Driver {
         }
     }
 
+    /// Starting from the document root, find the first element on the page that
+    /// matches the specified selector.
     #[async]
-    fn by(
-        self,
-        locator: webdriver::command::LocatorParameters,
-        root: Option<webdriver::common::WebElement>,
-    ) -> Result<Element> {
+    pub fn find(self, locator: Locator, root: Option<WebElement>) -> Result<WebElement> {
         let cmd = match root {
-            Option::None => WebDriverCommand::FindElement(locator),
-            Option::Some(elt) => WebDriverCommand::FindElementElement(elt, locator)
+            Option::None => WebDriverCommand::FindElement(locator.into()),
+            Option::Some(elt) => WebDriverCommand::FindElementElement(elt, locator.into())
         };
         let res = await!(self.0.clone().issue_cmd(cmd))?;
-        let eid = self.parse_lookup(res)?;
-        Ok(Element(Arc::new(ElementInner { driver: self.clone(), eid })))
+        Ok(self.parse_lookup(res)?)
     }
 
     #[async]
-    fn by_all(
+    pub fn find_all(
         self,
-        locator: webdriver::command::LocatorParameters,
-        root: Option<webdriver::common::WebElement>,
-    ) -> Result<Vec<Element>> {
+        locator: Locator,
+        root: Option<WebElement>
+    ) -> Result<Vec<WebElement>> {
         let cmd = match root {
-            Option::None => WebDriverCommand::FindElements(locator),
-            Option::Some(elt) => WebDriverCommand::FindElementElements(elt, locator)
+            Option::None => WebDriverCommand::FindElements(locator.into()),
+            Option::Some(elt) => WebDriverCommand::FindElementElements(elt, locator.into())
         };
         match await!(self.0.clone().issue_cmd(cmd))? {
             Json::Array(a) => Ok(
-                a.into_iter().map(|e| {
-                    let e = ElementInner {
-                        driver: self.clone(),
-                        eid: self.parse_lookup(e)?
-                    };
-                    Ok(Element(Arc::new(e)))
-                }).collect::<Result<Vec<Element>>>()?
+                a.into_iter().map(|e| self.parse_lookup(e))
+                    .collect::<Result<Vec<WebElement>>>()?
             ),
             r => bail!(ErrorKind::NotW3C(r))
         }
     }
 
+    generate_wait_for_find!(wait_for_find, find, WebElement);
+    generate_wait_for_find!(wait_for_find_all, find_all, Vec<WebElement>);
+
     /// Extract the `WebElement` from a `FindElement` or `FindElementElement` command.
-    fn parse_lookup(&self, res: Json) -> Result<webdriver::common::WebElement> {
+    fn parse_lookup(&self, res: Json) -> Result<WebElement> {
         let key = if self.0.legacy { "ELEMENT" } else { ELEMENT_KEY };
         let mut res = {
             if !res.is_object() { bail!(ErrorKind::NotW3C(res)) }
@@ -284,16 +259,12 @@ impl Driver {
             }
         }
     }
-}
 
-impl Element {
     /// Look up an attribute value for this element by name.
     #[async]
-    pub fn attr(self, attribute: String) -> Result<Option<String>> {
-        let cmd = WebDriverCommand::GetElementAttribute(
-            self.0.eid.clone(), attribute
-        );
-        match await!(self.0.driver.clone().0.issue_cmd(cmd))? {
+    pub fn attr(self, eid: WebElement, attribute: String) -> Result<Option<String>> {
+        let cmd = WebDriverCommand::GetElementAttribute(eid, attribute);
+        match await!(self.0.clone().issue_cmd(cmd))? {
             Json::String(v) => Ok(Some(v)),
             Json::Null => Ok(None),
             v => bail!(ErrorKind::NotW3C(v)),
@@ -302,11 +273,9 @@ impl Element {
 
     /// Look up a DOM property for this element by name.
     #[async]
-    pub fn prop(self, prop: String) -> Result<Option<String>> {
-        let cmd = WebDriverCommand::GetElementProperty(
-            self.0.eid.clone(), prop
-        );
-        match await!(self.0.driver.clone().0.issue_cmd(cmd))? {
+    pub fn prop(self, eid: WebElement, prop: String) -> Result<Option<String>> {
+        let cmd = WebDriverCommand::GetElementProperty(eid, prop);
+        match await!(self.0.clone().issue_cmd(cmd))? {
             Json::String(v) => Ok(Some(v)),
             Json::Null => Ok(None),
             v => bail!(ErrorKind::NotW3C(v)),
@@ -315,9 +284,9 @@ impl Element {
 
     /// Retrieve the text contents of this elment.
     #[async]
-    pub fn text(self) -> Result<String> {
-        let cmd = WebDriverCommand::GetElementText(self.0.eid.clone());
-        match await!(self.0.driver.clone().0.issue_cmd(cmd))? {
+    pub fn text(self, eid: WebElement) -> Result<String> {
+        let cmd = WebDriverCommand::GetElementText(eid);
+        match await!(self.0.clone().issue_cmd(cmd))? {
             Json::String(v) => Ok(v),
             v => bail!(ErrorKind::NotW3C(v)),
         }
@@ -327,17 +296,17 @@ impl Element {
     /// also return the wrapping nodes html. Note: this is the same as
     /// calling `prop("innerHTML")` or `prop("outerHTML")`.
     #[async]
-    pub fn html(self, inner: bool) -> Result<String> {
+    pub fn html(self, eid: WebElement, inner: bool) -> Result<String> {
         let prop = if inner { "innerHTML" } else { "outerHTML" };
-        await!(self.prop(prop.to_owned()))?
+        await!(self.prop(eid, prop.to_owned()))?
             .ok_or_else(|| Error::from(ErrorKind::NotW3C(Json::Null)))
     }
 
     /// Click on this element
     #[async]
-    pub fn click(self) -> Result<()> {
-        let cmd = WebDriverCommand::ElementClick(self.0.eid.clone());
-        let r = await!(self.0.driver.clone().0.issue_cmd(cmd))?;
+    pub fn click(self, eid: WebElement) -> Result<()> {
+        let cmd = WebDriverCommand::ElementClick(eid);
+        let r = await!(self.0.clone().issue_cmd(cmd))?;
         if r.is_null() || r.as_object().map(|o| o.is_empty()).unwrap_or(false) {
             // geckodriver returns {} :(
             Ok(())
@@ -346,88 +315,69 @@ impl Element {
         }
     }
 
-    /// Find the child element matching the specified criteria
-    #[async]
-    pub fn find(self, search: Locator) -> Result<Self> {
-        await!(self.0.driver.clone().by(search.into(), Some(self.0.eid.clone())))
-    }
-
-    /// Find the child elements matching the specified criteria
-    #[async]
-    pub fn find_all(self, search: Locator) -> Result<Vec<Self>> {
-        await!(self.0.driver.clone().by_all(search.into(), Some(self.0.eid.clone())))
-    }
-
     /// Scroll this element into view
     #[async]
-    pub fn scroll_into_view(self) -> Result<()> {
-        let args = vec![self.0.eid.to_json()];
+    pub fn scroll_into_view(self, eid: WebElement) -> Result<()> {
+        let args = vec![eid.to_json()];
         let js = "arguments[0].scrollIntoView(true)".to_string();
-        await!(self.0.driver.clone().execute(js, args))?;
+        await!(self.clone().execute(js, args))?;
         Ok(())
     }
-
-    generate_wait_for_find!(wait_for_find, find, Self);
-    generate_wait_for_find!(wait_for_find_all, find_all, Vec<Self>);
 
     /// Follow the `href` target of the element matching the given CSS
     /// selector *without* causing a click interaction.
     #[async]
-    pub fn follow(self) -> Result<()> {
-        match await!(self.clone().attr(String::from("href")))? {
+    pub fn follow(self, eid: WebElement) -> Result<()> {
+        match await!(self.clone().attr(eid.clone(), String::from("href")))? {
             None => bail!("no href attribute"),
             Some(href) => {
-                let current = await!(self.0.driver.clone().current_url())?;
-                await!(self.0.driver.clone().goto(current.join(&href)?.into_string()))
+                let current = await!(self.clone().current_url())?;
+                await!(self.clone().goto(current.join(&href)?.into_string()))
             }
         }
     }
 
-    /// Set the `value` of the given `field` in this form.
+    /// Set the `value` of the input element named `name` which is a child of `eid`
     #[async]
-    pub fn set_by_name(self, field: String, value: String) -> Result<()> {
-        let locator = Locator::Css(format!("input[name='{}']", field));
-        let elt = await!(
-            self.0.driver.clone().by(locator.into(), Some(self.0.eid.clone()))
-        )?;
+    pub fn set_by_name(self, eid: WebElement, name: String, value: String) -> Result<()> {
+        let locator = Locator::Css(format!("input[name='{}']", name));
+        let elt = await!(self.clone().find(locator.into(), Some(eid)))?;
         use rustc_serialize::json::ToJson;
         let args = {
-            let mut a = vec![elt.0.eid.to_json(), Json::String(value)];
-            self.0.driver.fixup_elements(&mut a);
+            let mut a = vec![elt.to_json(), Json::String(value)];
+            self.fixup_elements(&mut a);
             a
         };
         let js = "arguments[0].value = arguments[1]".to_string();
-        let res = await!(self.0.driver.clone().execute(js, args))?;
+        let res = await!(self.clone().execute(js, args))?;
         if res.is_null() { Ok(()) } else { bail!(ErrorKind::NotW3C(res)) }
     }
 
-    /// Submit this form using the first available submit button.
+    /// Submit the form specified by `eid` with the first submit button
     #[async]
-    pub fn submit(self) -> Result<()> {
+    pub fn submit(self, eid: WebElement) -> Result<()> {
         let l = Locator::Css("input[type=submit],button[type=submit]".into());
-        await!(self.submit_with(l))
+        await!(self.submit_with(eid, l))
     }
 
-    /// Submit this form using the button matched by the given selector.
+    /// Submit the form `eid` using the button matched by the given selector.
     #[async]
-    pub fn submit_with(self, button: Locator) -> Result<()> {
-        let elt = await!(
-            self.0.driver.clone().by(button.into(), Some(self.0.eid.clone()))
-        )?;
-        Ok(await!(elt.click())?)
+    pub fn submit_with(self, eid: WebElement, button: Locator) -> Result<()> {
+        let elt = await!(self.clone().find(button.into(), Some(eid)))?;
+        Ok(await!(self.clone().click(elt))?)
     }
 
     /// Submit this form using the form submit button with the given
     /// label (case-insensitive).
     #[async]
-    pub fn submit_using(self, button_label: String) -> Result<()> {
+    pub fn submit_using(self, eid: WebElement, button_label: String) -> Result<()> {
         let escaped = button_label.replace('\\', "\\\\").replace('"', "\\\"");
         let btn = format!(
             "input[type=submit][value=\"{}\" i],\
              button[type=submit][value=\"{}\" i]",
             escaped, escaped
         );
-        Ok(await!(self.submit_with(Locator::Css(btn)))?)
+        Ok(await!(self.submit_with(eid, Locator::Css(btn)))?)
     }
 
     /// Submit this form directly, without clicking any buttons.
@@ -441,7 +391,7 @@ impl Element {
     /// submitted. This can be circumvented by using `submit_sneaky`
     /// instead.
     #[async]
-    pub fn submit_direct(self) -> Result<()> {
+    pub fn submit_direct(self, eid: WebElement) -> Result<()> {
         // some sites are silly, and name their submit button
         // "submit". this ends up overwriting the "submit" function of
         // the form with a reference to the submit button itself, so
@@ -452,11 +402,11 @@ impl Element {
         use rustc_serialize::json::ToJson;
         let js = "document.createElement('form').submit.call(arguments[0])".to_string();
         let args = {
-            let mut a = vec![self.0.eid.to_json()];
-            self.0.driver.fixup_elements(&mut a);
+            let mut a = vec![eid.to_json()];
+            self.fixup_elements(&mut a);
             a
         };
-        await!(self.0.driver.clone().execute(js, args))?;
+        await!(self.clone().execute(js, args))?;
         Ok(())
     }
 
@@ -470,7 +420,12 @@ impl Element {
     /// form data as it would have been *if* the submit button was
     /// indeed clicked.
     #[async]
-    pub fn submit_sneaky(self, field: String, value: String) -> Result<()> {
+    pub fn submit_sneaky(
+        self,
+        eid: WebElement,
+        field: String,
+        value: String
+    ) -> Result<()> {
         use rustc_serialize::json::ToJson;
         let js = r#"
             var h = document.createElement('input');
@@ -481,20 +436,14 @@ impl Element {
         "#.to_string();
         let args = {
             let mut a = vec![
-                self.0.eid.to_json(),
+                eid.to_json(),
                 Json::String(field),
                 Json::String(value),
             ];
-            self.0.driver.fixup_elements(&mut a);
+            self.fixup_elements(&mut a);
             a
         };
-        await!(self.0.driver.clone().execute(js, args))?;
+        await!(self.execute(js, args))?;
         Ok(())
-    }
-}
-
-impl rustc_serialize::json::ToJson for Element {
-    fn to_json(&self) -> Json {
-        self.0.eid.to_json()
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "rusy-driver"
+name = "rusty-driver"
 version = "0.1.0"
 
 description = "A high level API for controlling a web browser with webdriver"

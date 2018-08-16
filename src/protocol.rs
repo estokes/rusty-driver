@@ -263,7 +263,8 @@ impl ClientInner {
         match body {
             None => Ok(req.body(hyper::Body::from(String::new()))?),
             Some(body) => {
-                Ok(req.header(hyper::header::CONTENT_TYPE, "application/json")
+                Ok(req.header(hyper::header::CONTENT_TYPE,
+                              "application/json; charset=utf-8")
                    .header(hyper::header::CONTENT_LENGTH, body.len() as u64)
                    .body(hyper::Body::from(body))?)
             }
@@ -372,7 +373,7 @@ impl Client {
         match res.headers().get(hyper::header::CONTENT_TYPE) {
             None => bail!(ErrorKind::NotJson(None)),
             Some(ctype) =>
-                if ctype != "application/json" {
+                if !ctype.to_str()?.starts_with("application/json") {
                     let c = Some(String::from(ctype.to_str()?));
                     bail!(ErrorKind::NotJson(c));
                 }
