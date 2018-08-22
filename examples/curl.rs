@@ -1,4 +1,15 @@
 // you must have a webdriver server running on localhost:4444
+// e.g. if you are using firefox you would run something like,
+//
+// geckodriver --connect-existing --marionette-port 2828 --log trace
+//
+// to connect to your existing firefox (which you started with firefox --marionette) or
+//
+// geckodriver --marionette-port 2828 --log trace
+//
+// to start a new browser when you create a session. The advantage of
+// the first method is it can run with all your existing user cookies,
+// the second one creates a completely new profile.
 #![feature(generators, use_extern_macros, proc_macro_non_items, nll)]
 #![recursion_limit="128"]
 extern crate tokio;
