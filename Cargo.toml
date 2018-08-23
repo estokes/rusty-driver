@@ -1,6 +1,6 @@
 [package]
 name = "rusty-driver"
-version = "0.1.0"
+version = "0.1.1"
 
 description = "A high level API for controlling a web browser with webdriver. Currently requires a nightly compiler due to use of futures-await."
 

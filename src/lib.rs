@@ -7,7 +7,7 @@
 //! [operators]: https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors
 //! [WebDriver compatible]: https://github.com/Fyrd/caniuse/issues/2757#issuecomment-304529217
 //! [`geckodriver`]: https://github.com/mozilla/geckodriver
-#![feature(use_extern_macros, proc_macro_non_items, generators, nll)]
+#![feature(proc_macro_non_items, generators, nll)]
 
 extern crate futures_await as futures;
 extern crate http;
