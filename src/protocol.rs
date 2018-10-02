@@ -175,7 +175,7 @@ impl ClientInner {
             };
             self.webdriver_url.join(&format!("/session/{}/", sid))?
         };
-        let endpoint = match *cmd {
+        let endpoint = match cmd {
             WebDriverCommand::NewSession(..) => bail!("new session handled by init"),
             WebDriverCommand::DeleteSession => bail!("delete session handed by shutdown"),
             WebDriverCommand::Get(..) | WebDriverCommand::GetCurrentUrl =>
@@ -197,13 +197,15 @@ impl ClientInner {
                 base.join(&format!("element/{}/attribute/{}", we.id, attr)),
             WebDriverCommand::FindElementElement(ref p, _) => 
                 base.join(&format!("element/{}/element", p.id)),
+            WebDriverCommand::FindElementElements(ref p, _) =>
+                base.join(&format!("element/{}/elements", p.id)),
             WebDriverCommand::ElementClick(ref we) => 
                 base.join(&format!("element/{}/click", we.id)),
             WebDriverCommand::GetElementText(ref we) => 
                 base.join(&format!("element/{}/text", we.id)),
             WebDriverCommand::ElementSendKeys(ref we, _) => 
                 base.join(&format!("element/{}/value", we.id)),
-            _ => unimplemented!(),
+            x => unimplemented!("{:?}", x),
         };
         Ok(endpoint?)
     }
@@ -222,7 +224,8 @@ impl ClientInner {
                 (Some(format!("{}", params.to_json())), Method::POST),
             WebDriverCommand::FindElement(ref loc)
                 | WebDriverCommand::FindElements(ref loc)
-                | WebDriverCommand::FindElementElement(_, ref loc) =>
+                | WebDriverCommand::FindElementElement(_, ref loc)
+                | WebDriverCommand::FindElementElements(_, ref loc) =>
                 (Some(format!("{}", loc.to_json())), Method::POST),
             WebDriverCommand::ExecuteScript(ref script) =>
                 (Some(format!("{}", script.to_json())), Method::POST),
