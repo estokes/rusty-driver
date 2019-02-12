@@ -5,14 +5,14 @@ error_chain! {
         IoErr(::std::io::Error);
         WebDriver(::webdriver::error::WebDriverError);
         BadUrl(::url::ParseError);
-        InvalidJson(::rustc_serialize::json::ParserError);
+        InvalidJson(::serde_json::Error);
         Utf8(::std::str::Utf8Error);
         HeaderStr(::hyper::header::ToStrError);
         Timer(::tokio_timer::Error);
     }
 
     errors {
-        NotW3C(o: ::rustc_serialize::json::Json) {
+        NotW3C(o: ::serde_json::Value) {
             description("not a valid W3C response")
             display("not a valid W3C response {}", o)
         }

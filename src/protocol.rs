@@ -12,15 +12,13 @@ use webdriver::{
     self, command::WebDriverCommand,
     error::{WebDriverError, ErrorStatus}, common::{ELEMENT_KEY, FrameId}
 };
-use std::{collections::BTreeMap, sync::Arc, str::from_utf8, ops::Deref};
+use std::{sync::Arc, str::from_utf8, ops::Deref};
 use url;
-use tokio::spawn;
-use rustc_serialize::json::Json;
-use futures::prelude::await;
-use futures::prelude::*;
+use serde_json::Value;
 use hyper_tls;
 use hyper::{self, Method};
-use error::*;
+use crate::error::*;
+use tokio::prelude::*;
 
 type Cmd = WebDriverCommand<webdriver::command::VoidWebDriverExtensionCommand>;
 type HttpClient =
@@ -48,9 +46,8 @@ impl ClientInner {
                     .uri(url.as_str())
                     .body(hyper::Body::from(""))?;
                 let http = self.http_client.clone();
-                spawn(async_block! {
+                tokio::spawn_async(async move {
                     let _ = await!(http.request(req));
-                    Ok(())
                 });
                 Ok(())
             }
@@ -58,19 +55,19 @@ impl ClientInner {
     }
 
     fn decode_error(
-        &self, status: hyper::StatusCode, legacy_status: u64, response: Json
+        &self, status: hyper::StatusCode, legacy_status: u64, response: Value
     ) -> Result<Error> {
-        if !response.is_object() {
-            bail!(ErrorKind::NotW3C(response))
-        }
-        let mut response = response.into_object().unwrap();
+        let mut response = match response {
+            Value::Object(r) => r,
+            v => bail!(ErrorKind::NotW3C(v))
+        };
         // phantomjs injects a *huge* field with the entire
         // screen contents -- remove that
         response.remove("screen");
         let es = {
             if self.legacy {
                 if !response.contains_key("message") || !response["message"].is_string() {
-                    bail!(ErrorKind::NotW3C(Json::Object(response)));
+                    bail!(ErrorKind::NotW3C(Value::Object(response)));
                 }
                 match legacy_status {
                     6 | 33 => ErrorStatus::SessionNotCreated,
@@ -93,12 +90,12 @@ impl ClientInner {
                     28 => ErrorStatus::ScriptTimeout,
                     29 => ErrorStatus::InvalidCoordinates,
                     34 => ErrorStatus::MoveTargetOutOfBounds,
-                    _ => bail!(ErrorKind::NotW3C(Json::Object(response))),
+                    _ => bail!(ErrorKind::NotW3C(Value::Object(response))),
                 }
             } else {
                 use hyper::StatusCode;
-                let error = match response["error"].as_string() {
-                    None => bail!(ErrorKind::NotW3C(Json::Object(response))),
+                let error = match response["error"].as_str() {
+                    None => bail!(ErrorKind::NotW3C(Value::Object(response))),
                     Some(e) => e
                 };
                 if status == StatusCode::BAD_REQUEST {
@@ -157,8 +154,8 @@ impl ClientInner {
                 }
             }
         };
-        let message = match response["message"].as_string() {
-            None => bail!(ErrorKind::NotW3C(Json::Object(response))),
+        let message = match response["message"].as_str() {
+            None => bail!(ErrorKind::NotW3C(Value::Object(response))),
             Some(s) => String::from(s)
         };
         Ok(Error::from(ErrorKind::WebDriver(WebDriverError::new(es, message))))
@@ -211,26 +208,25 @@ impl ClientInner {
     }
 
     fn encode_cmd(&self, cmd: &Cmd) -> Result<hyper::Request<hyper::Body>> {
-        use rustc_serialize::json::ToJson;
         use webdriver::command;
         let (body, method) = match cmd {
             WebDriverCommand::NewSession(command::NewSessionParameters::Spec(ref conf)) =>
-                (Some(format!("{}", conf.to_json())), Method::POST),
+                (Some(serde_json::to_string(conf)?), Method::POST),
             WebDriverCommand::NewSession(
                 command::NewSessionParameters::Legacy(ref conf)
             ) =>
-                (Some(format!("{}", conf.to_json())), Method::POST),
+                (Some(serde_json::to_string(conf)?), Method::POST),
             WebDriverCommand::Get(ref params) => 
-                (Some(format!("{}", params.to_json())), Method::POST),
+                (Some(serde_json::to_string(params)?), Method::POST),
             WebDriverCommand::FindElement(ref loc)
                 | WebDriverCommand::FindElements(ref loc)
                 | WebDriverCommand::FindElementElement(_, ref loc)
                 | WebDriverCommand::FindElementElements(_, ref loc) =>
-                (Some(format!("{}", loc.to_json())), Method::POST),
+                (Some(serde_json::to_string(loc)?), Method::POST),
             WebDriverCommand::ExecuteScript(ref script) =>
-                (Some(format!("{}", script.to_json())), Method::POST),
+                (Some(serde_json::to_string(script)?), Method::POST),
             WebDriverCommand::ElementSendKeys(_, ref keys) =>
-                (Some(format!("{}", keys.to_json())), Method::POST),
+                (Some(serde_json::to_string(keys)?), Method::POST),
             WebDriverCommand::ElementClick(..)
                 | WebDriverCommand::GoBack
                 | WebDriverCommand::Refresh => 
@@ -242,19 +238,19 @@ impl ClientInner {
                 // not round trip properly so we need to encode the
                 // Json manually.
                 let id = match param.id {
-                    FrameId::Element(ref e) => Json::String(e.id.to_string()),
-                    FrameId::Null | FrameId::Short(_) => unimplemented!()
+                    Some(FrameId::Element(ref e)) => Value::String(e.id.to_string()),
+                    Some(FrameId::Short(_)) | None => unimplemented!()
                 };
                 let p = move |k, v| {
-                    let mut m = BTreeMap::new(); 
+                    let mut m = serde_json::map::Map::with_capacity(1); 
                     m.insert(k, v);
-                    Json::Object(m)
+                    Value::Object(m)
                 };
                 let msg = p("id".to_string(), p(ELEMENT_KEY.to_string(), id));
                 (Some(format!("{}", msg)), Method::POST)
             },
             WebDriverCommand::SwitchToWindow(ref handle) =>
-                (Some(format!("{}", handle.to_json())), Method::POST),
+                (Some(serde_json::to_string(handle)?), Method::POST),
             _ => (None, Method::GET)
         };
         let url = self.endpoint_for(&cmd)?;
@@ -274,8 +270,7 @@ impl ClientInner {
         }
     }
 
-    #[async]
-    pub fn new(webdriver_url: String, user_agent: Option<String>) -> Result<Self> {
+    pub async fn new(webdriver_url: String, user_agent: Option<String>) -> Result<Self> {
         let webdriver_url = webdriver_url.parse::<url::Url>()?;
         let http_client =
             hyper::Client::builder().build(hyper_tls::HttpsConnector::new(8).unwrap());
@@ -286,7 +281,7 @@ impl ClientInner {
         let cap = {
             let mut c = webdriver::capabilities::Capabilities::new();
             // we want the browser to wait for the page to load
-            c.insert("pageLoadStrategy".to_string(), Json::String("normal".to_string()));
+            c.insert("pageLoadStrategy".to_string(), Value::String("normal".to_string()));
             c
         };
         let session_config = webdriver::capabilities::SpecNewSessionParameters {
@@ -298,9 +293,11 @@ impl ClientInner {
             Err(Error(ErrorKind::NotW3C(json), _)) => {
                 let legacy = match json {
                     // ghostdriver
-                    Json::String(ref err) => err.starts_with("Missing Command Parameter"),
-                    Json::Object(ref err) =>
-                        err.get("message").and_then(|m| m.as_string()).map(|s| {
+                    Value::String(ref err) => err.starts_with("Missing Command Parameter"),
+                    Value::Object(ref err) =>
+                        err.get("message")
+                        .and_then(|m| m.as_str())
+                        .map(|s| {
                             // chromedriver <= 2.29
                             s.contains("cannot find dict 'desiredCapabilities'")
                                 || s.contains("Missing or invalid capabilities")
@@ -324,20 +321,19 @@ impl ClientInner {
         }
     }
 
-    #[async]
-    fn init(mut self, params: webdriver::command::NewSessionParameters) -> Result<Self> {
+    async fn init(mut self, params: webdriver::command::NewSessionParameters) -> Result<Self> {
         let client = Client(Arc::new(self.clone()));
         match await!(client.issue_cmd(WebDriverCommand::NewSession(params)))? {
-            Json::Object(mut v) => {
+            Value::Object(mut v) => {
                 if let Some(session_id) = v.remove("sessionId") {
-                    if let Some(session_id) = session_id.as_string() {
+                    if let Some(session_id) = session_id.as_str() {
                         self.session_id = Some(session_id.to_string());
                         return Ok(self);
                     }
                     v.insert("sessionId".to_string(), session_id);
-                    bail!(ErrorKind::NotW3C(Json::Object(v)))
+                    bail!(ErrorKind::NotW3C(Value::Object(v)))
                 } else {
-                    bail!(ErrorKind::NotW3C(Json::Object(v)))
+                    bail!(ErrorKind::NotW3C(Value::Object(v)))
                 }
             }
             v => bail!(ErrorKind::NotW3C(v))
@@ -360,8 +356,7 @@ impl Deref for Client {
 
 impl Client {
     /// Create a new webdriver session with the server specified by url
-    #[async]
-    pub(crate) fn new(webdriver_url: String, user_agent: Option<String>) -> Result<Self> {
+    pub(crate) async fn new(webdriver_url: String, user_agent: Option<String>) -> Result<Self> {
         let inner = await!(ClientInner::new(webdriver_url, user_agent))?;
         Ok(Client(Arc::new(inner)))
     }
@@ -369,8 +364,7 @@ impl Client {
     /// Issue a command to the webdriver server, and return the Json
     /// object returned by the server on success or Err if the request
     /// failed.
-    #[async]
-    pub(crate) fn issue_cmd(self, cmd: Cmd) -> Result<Json> {
+    pub(crate) async fn issue_cmd(self, cmd: Cmd) -> Result<Value> {
         let req = self.encode_cmd(&cmd)?;
         let res = await!(self.http_client.request(req))?;
         match res.headers().get(hyper::header::CONTENT_TYPE) {
@@ -386,8 +380,8 @@ impl Client {
         let is_new_session =
             if let WebDriverCommand::NewSession(..) = cmd { true } else { false };
         let (response, is_success, legacy_status) =
-            match Json::from_str(from_utf8(&*res_body)?)? {
-                Json::Object(mut v) => {
+            match serde_json::from_str(from_utf8(&*res_body)?)? {
+                Value::Object(mut v) => {
                     let mut is_success = status.is_success();
                     let mut legacy_status = 0;
                     if self.legacy {
@@ -395,10 +389,10 @@ impl Client {
                         is_success = legacy_status == 0;
                     }
                     if self.legacy && is_new_session {
-                        (Json::Object(v), is_success, legacy_status)
+                        (Value::Object(v), is_success, legacy_status)
                     } else {
                         let response = v.remove("value").ok_or_else(|| {
-                            Error::from(ErrorKind::NotW3C(Json::Object(v)))
+                            Error::from(ErrorKind::NotW3C(Value::Object(v)))
                         })?;
                         (response, is_success, legacy_status)
                     }

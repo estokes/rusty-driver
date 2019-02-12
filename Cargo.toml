@@ -1,6 +1,9 @@
+cargo-features = ["edition"]
+
 [package]
 name = "rusty-driver"
-version = "0.1.2"
+edition = "2018"
+version = "0.2.0"
 
 description = "A high level API for controlling a web browser with webdriver. Currently requires a nightly compiler due to use of futures-await."
 
@@ -16,13 +19,13 @@ categories = ["api-bindings", "development-tools::testing", "web-programming::ht
 license = "MIT"
 
 [dependencies]
-webdriver = "0.36"
-url = "1.0"
-rustc-serialize = "0.3"
-futures-await = "0.1"
-tokio = "0.1"
+webdriver = "0.39"
+url = "1.7"
+tokio = {version = "0.1", features = ["async-await-preview"]}
 tokio-timer = "0.2"
 http = "0.1"
 hyper = "0.12"
 hyper-tls = "0.3"
 error-chain = "0.12"
+serde = "1.0"
+serde_json = "1.0"
