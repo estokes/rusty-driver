@@ -3,7 +3,7 @@ name = "rusty-driver"
 edition = "2018"
 version = "0.2.0"
 
-description = "A high level API for controlling a web browser with webdriver. Currently requires a nightly compiler due to use of futures-await."
+description = "A high level API for controlling a web browser with webdriver. Currently requires a nightly compiler due to use of async-await."
 
 authors = ["Eric Stokes <letaris@gmail.com>"]
 
