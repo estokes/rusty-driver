@@ -1,0 +1,4 @@
+0.2.0
+- move to rust 2018
+- move to tokio-async-await
+- api changes for new async-await, take refs where possible
