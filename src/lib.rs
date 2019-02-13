@@ -61,7 +61,7 @@ macro_rules! generate_wait_for_find {
     ($name:ident, $search_fn:ident, $return_typ:ty) => {
         /// Wait for the specified element(s) to appear on the page
         pub async fn $name(
-            self,
+            &self,
             search: Locator,
             root: Option<WebElement>
         ) -> Result<$return_typ> {
