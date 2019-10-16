@@ -7,7 +7,6 @@
 //! [operators]: https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors
 //! [WebDriver compatible]: https://github.com/Fyrd/caniuse/issues/2757#issuecomment-304529217
 //! [`geckodriver`]: https://github.com/mozilla/geckodriver
-// #![feature(await_macro, async_await, futures_api)]
 
 #[macro_use]
 extern crate error_chain;
