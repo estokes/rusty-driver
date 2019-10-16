@@ -1,3 +1,6 @@
+0.3.0
+- move to the pre release of futures-await + tokio + hyper
+
 0.2.0
 - move to rust 2018
 - move to tokio-async-await
