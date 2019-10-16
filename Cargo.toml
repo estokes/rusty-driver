@@ -17,13 +17,13 @@ categories = ["api-bindings", "development-tools::testing", "web-programming::ht
 license = "MIT"
 
 [dependencies]
-webdriver = "0.39"
-url = "1.7"
-tokio = {version = "0.1", features = ["async-await-preview"]}
-tokio-timer = "0.2"
+webdriver = "0.40"
+url = "2.1"
+tokio = "=0.2.0-alpha.6"
+tokio-timer = "=0.3.0-alpha.6"
 http = "0.1"
-hyper = "0.12"
-hyper-tls = "0.3"
+hyper = "=0.13.0-alpha.4"
+hyper-tls = "0.4.0-alpha.4"
 error-chain = "0.12"
 serde = "1.0"
 serde_json = "1.0"

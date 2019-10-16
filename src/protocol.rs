@@ -12,8 +12,7 @@ use crate::error::*;
 use hyper::{self, Method};
 use hyper_tls;
 use serde_json::Value;
-use std::str::from_utf8;
-use tokio::prelude::*;
+use std::{str::from_utf8, iter::IntoIterator};
 use url;
 use webdriver::{
     self,
@@ -53,11 +52,9 @@ impl Client {
                     .uri(url.as_str())
                     .body(hyper::Body::from(""))?;
                 let http = self.http_client.clone();
-                tokio::spawn_async(
-                    async move {
-                        let _ = await!(http.request(req));
-                    },
-                );
+                tokio::spawn(async move {
+                    let _ = http.request(req).await;
+                });
                 Ok(())
             }
         }
@@ -205,25 +202,25 @@ impl Client {
             WebDriverCommand::SwitchToParentFrame => base.join("frame/parent"),
             WebDriverCommand::SwitchToWindow(..) => base.join("window"),
             WebDriverCommand::GetElementProperty(ref we, ref prop) => {
-                base.join(&format!("element/{}/property/{}", we.id, prop))
+                base.join(&format!("element/{}/property/{}", we.0, prop))
             }
             WebDriverCommand::GetElementAttribute(ref we, ref attr) => {
-                base.join(&format!("element/{}/attribute/{}", we.id, attr))
+                base.join(&format!("element/{}/attribute/{}", we.0, attr))
             }
             WebDriverCommand::FindElementElement(ref p, _) => {
-                base.join(&format!("element/{}/element", p.id))
+                base.join(&format!("element/{}/element", p.0))
             }
             WebDriverCommand::FindElementElements(ref p, _) => {
-                base.join(&format!("element/{}/elements", p.id))
+                base.join(&format!("element/{}/elements", p.0))
             }
             WebDriverCommand::ElementClick(ref we) => {
-                base.join(&format!("element/{}/click", we.id))
+                base.join(&format!("element/{}/click", we.0))
             }
             WebDriverCommand::GetElementText(ref we) => {
-                base.join(&format!("element/{}/text", we.id))
+                base.join(&format!("element/{}/text", we.0))
             }
             WebDriverCommand::ElementSendKeys(ref we, _) => {
-                base.join(&format!("element/{}/value", we.id))
+                base.join(&format!("element/{}/value", we.0))
             }
             x => unimplemented!("{:?}", x),
         };
@@ -265,7 +262,7 @@ impl Client {
                 // not round trip properly so we need to encode the
                 // Json manually.
                 let id = match param.id {
-                    Some(FrameId::Element(ref e)) => Value::String(e.id.to_string()),
+                    Some(FrameId::Element(ref e)) => Value::String(e.0.to_string()),
                     Some(FrameId::Short(_)) | None => unimplemented!(),
                 };
                 let p = move |k, v| {
@@ -306,7 +303,7 @@ impl Client {
     ) -> Result<Self> {
         let webdriver_url = webdriver_url.parse::<url::Url>()?;
         let http_client =
-            hyper::Client::builder().build(hyper_tls::HttpsConnector::new(8).unwrap());
+            hyper::Client::builder().build(hyper_tls::HttpsConnector::new().unwrap());
         let mut client = Client {
             http_client,
             webdriver_url,
@@ -328,7 +325,7 @@ impl Client {
             firstMatch: vec![],
         };
         let spec = webdriver::command::NewSessionParameters::Spec(session_config);
-        match await!(client.init(spec)) {
+        match client.init(spec).await {
             Ok(()) => Ok(client),
             Err(Error(ErrorKind::NotW3C(json), _)) => {
                 let legacy = match json {
@@ -358,7 +355,7 @@ impl Client {
                     let spec =
                         webdriver::command::NewSessionParameters::Legacy(session_config);
                     client.legacy = true;
-                    await!(client.init(spec))?;
+                    client.init(spec).await?;
                     Ok(client)
                 }
             }
@@ -371,7 +368,7 @@ impl Client {
         params: webdriver::command::NewSessionParameters,
     ) -> Result<()> {
         let cmd = WebDriverCommand::NewSession(params);
-        match await!(self.issue_cmd(&cmd))? {
+        match self.issue_cmd(&cmd).await? {
             Value::Object(mut v) => {
                 if let Some(session_id) = v.remove("sessionId") {
                     if let Some(session_id) = session_id.as_str() {
@@ -393,7 +390,7 @@ impl Client {
     /// failed.
     pub(crate) async fn issue_cmd<'a>(&'a self, cmd: &'a Cmd) -> Result<Value> {
         let req = self.encode_cmd(cmd)?;
-        let res = await!(self.http_client.request(req))?;
+        let res = self.http_client.request(req).await?;
         match res.headers().get(hyper::header::CONTENT_TYPE) {
             None => bail!(ErrorKind::NotJson(None)),
             Some(ctype) => {
@@ -404,7 +401,19 @@ impl Client {
             }
         }
         let status = res.status();
-        let res_body = await!(res.into_body().concat2())?;
+        let res_body = {
+            let mut body = res.into_body();
+            let mut v = match body.next().await {
+                None => bail!("empty response"),
+                Some(r) => r?
+            };
+            loop {
+                match body.next().await {
+                    None => break v,
+                    Some(r) => v.extend(r?.into_iter())
+                }
+            }
+        };
         let is_new_session = if let WebDriverCommand::NewSession(..) = cmd {
             true
         } else {
