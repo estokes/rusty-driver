@@ -19,7 +19,7 @@ pub use hyper::Method;
 use protocol::Client;
 use serde_json::Value;
 use std::time::Duration;
-use tokio_timer::delay_for;
+use tokio::time::delay_for;
 use webdriver::{
     command::{SwitchToFrameParameters, SwitchToWindowParameters, WebDriverCommand},
     common::{FrameId, WebElement, ELEMENT_KEY},

@@ -8,7 +8,6 @@ error_chain! {
         InvalidJson(::serde_json::Error);
         Utf8(::std::str::Utf8Error);
         HeaderStr(::hyper::header::ToStrError);
-        Timer(::tokio_timer::Error);
     }
 
     errors {

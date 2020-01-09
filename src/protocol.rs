@@ -9,10 +9,12 @@
 // library would have been much harder to write.
 
 use crate::error::*;
+use futures::prelude::*;
 use hyper::{self, Method};
 use hyper_tls;
 use serde_json::Value;
-use std::{str::from_utf8, iter::IntoIterator};
+use bytes::BytesMut;
+use std::str::from_utf8;
 use url;
 use webdriver::{
     self,
@@ -279,11 +281,11 @@ impl Client {
             _ => (None, Method::GET),
         };
         let url = self.endpoint_for(&cmd)?;
-        let mut req = hyper::Request::builder();
-        req.method(method).uri(url.as_str());
-        if let Some(ref s) = self.user_agent {
-            req.header(hyper::header::USER_AGENT, s.as_str());
-        }
+        let req = hyper::Request::builder().method(method).uri(url.as_str());
+        let req = match self.user_agent {
+            None => req,
+            Some(ref s) => req.header(hyper::header::USER_AGENT, s.as_str()),
+        };
         match body {
             None => Ok(req.body(hyper::Body::from(String::new()))?),
             Some(body) => Ok(req
@@ -303,7 +305,7 @@ impl Client {
     ) -> Result<Self> {
         let webdriver_url = webdriver_url.parse::<url::Url>()?;
         let http_client =
-            hyper::Client::builder().build(hyper_tls::HttpsConnector::new().unwrap());
+            hyper::Client::builder().build(hyper_tls::HttpsConnector::new());
         let mut client = Client {
             http_client,
             webdriver_url,
@@ -402,15 +404,18 @@ impl Client {
         }
         let status = res.status();
         let res_body = {
+            let mut buf = BytesMut::new();
             let mut body = res.into_body();
-            let mut v = match body.next().await {
-                None => bail!("empty response"),
-                Some(r) => r?
-            };
             loop {
                 match body.next().await {
-                    None => break v,
-                    Some(r) => v.extend(r?.into_iter())
+                    Some(r) => { buf.extend_from_slice(&*(r?)); }
+                    None => {
+                        if buf.len() == 0 {
+                            bail!("empty body");
+                        } else {
+                            break buf.split().freeze();
+                        }
+                    }
                 }
             }
         };
