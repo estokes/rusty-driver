@@ -3,7 +3,7 @@ name = "rusty-driver"
 edition = "2018"
 version = "0.3.1"
 
-description = "A high level API for controlling a web browser with webdriver. Currently requires a nightly compiler due to use of async-await."
+description = "A high level async API for controlling a web browser with webdriver."
 
 authors = ["Eric Stokes <letaris@gmail.com>"]
 
@@ -18,13 +18,14 @@ license = "MIT"
 
 [dependencies]
 webdriver = "0.40"
-url = "2.1"
+url = "2"
 futures = "0.3"
 tokio = { version = "0.2", features = ["full"] }
 http = "0.2"
 hyper = "0.13"
 hyper-tls = "0.4"
 error-chain = "0.12"
-serde = "1.0"
-serde_json = "1.0"
+serde = "1"
+serde_json = "1"
 bytes = "0.5"
+
