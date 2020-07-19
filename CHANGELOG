@@ -1,5 +1,6 @@
 0.3.1
 - update cargo description
+- restrict tokio feature set to those we actually use
 
 0.3.0
 - move to the pre release of futures-await + tokio + hyper
