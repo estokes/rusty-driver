@@ -20,7 +20,7 @@ license = "MIT"
 webdriver = "0.40"
 url = "2"
 futures = "0.3"
-tokio = { version = "0.2", features = ["full"] }
+tokio = { version = "0.2", features = ["time", "rt-core"] }
 http = "0.2"
 hyper = "0.13"
 hyper-tls = "0.4"
