@@ -19,7 +19,7 @@ pub use hyper::Method;
 use protocol::Client;
 use serde_json::Value;
 use std::time::Duration;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use webdriver::{
     command::{SwitchToFrameParameters, SwitchToWindowParameters, WebDriverCommand},
     common::{FrameId, WebElement, ELEMENT_KEY},
@@ -67,7 +67,7 @@ macro_rules! generate_wait_for_find {
                     Ok(e) => break Ok(e),
                     Err(Error(ErrorKind::WebDriver(
                         WebDriverError {error: ErrorStatus::NoSuchElement, ..}
-                    ), _)) => delay_for(Duration::from_millis(100)).await,
+                    ), _)) => sleep(Duration::from_millis(100)).await,
                     Err(e) => break Err(e)
                 }
             }
@@ -173,7 +173,7 @@ impl Driver {
             if self.current_url().await? != current {
                 break Ok(());
             }
-            delay_for(Duration::from_millis(100)).await
+            sleep(Duration::from_millis(100)).await
         }
     }
 

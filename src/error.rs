@@ -1,7 +1,7 @@
 error_chain! {
     foreign_links {
         HttpError(::http::Error);
-        HyperError(::hyper::error::Error);
+        HyperError(::hyper::Error);
         IoErr(::std::io::Error);
         WebDriver(::webdriver::error::WebDriverError);
         BadUrl(::url::ParseError);
