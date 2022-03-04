@@ -84,7 +84,7 @@ impl Driver {
     /// Navigate directly to the given URL.
     pub async fn goto<'a>(&'a self, url: &'a str) -> Result<()> {
         let cmd = WebDriverCommand::Get(webdriver::command::GetParameters {
-            url: self.current_url().await?.join(url)?.into_string(),
+            url: self.current_url().await?.join(url)?.into(),
         });
         self.0.issue_cmd(&cmd).await?;
         Ok(())
